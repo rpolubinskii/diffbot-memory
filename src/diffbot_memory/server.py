@@ -143,6 +143,13 @@ mcp = FastMCP(
     "diffbot-memory",
     host=MCP_HOST,
     port=MCP_PORT,
+    # Stateless JSON-over-HTTP. Our tools carry no per-session state (add_memory queues,
+    # search_memory_facts queries), so MCP session continuity buys us nothing — and
+    # requiring it broke the Spring AI client after a transitive starlette bump (it stopped
+    # echoing the session id on follow-ups -> 400). Stateless mode drops the session
+    # requirement; json_response returns plain JSON instead of SSE for simple clients.
+    stateless_http=True,
+    json_response=True,
     # Disable DNS-rebinding host validation: this is a trusted-LAN service bound to
     # 0.0.0.0, and the default localhost-only allow-list would reject diffbot-mcp.
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),

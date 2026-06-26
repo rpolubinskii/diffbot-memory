@@ -8,9 +8,11 @@ dependencies = [
     "graphiti-core==0.28.2",
     "falkordb==1.6.0",
     "mcp==1.26.0",
-    # Standard extras (websockets/uvloop/httptools): silences uvicorn's
-    # "No supported WebSocket library" upgrade-request warnings on the streamable-HTTP transport.
-    "uvicorn[standard]",
+    # Plain uvicorn (h11) ONLY — do NOT use uvicorn[standard]. Its httptools HTTP parser
+    # rejects the Spring AI MCP client's POSTs with 400 "Invalid HTTP request received",
+    # which breaks the memory connection entirely. The cosmetic "No supported WebSocket
+    # library" warning on the streamable-HTTP transport is harmless and expected.
+    "uvicorn",
 ]
 
 [build-system]
