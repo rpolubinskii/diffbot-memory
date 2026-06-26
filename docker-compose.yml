@@ -1,26 +1,28 @@
-# diffbot-memory: Graphiti temporal knowledge-graph memory for the DiffBot agent.
-# Runs on the RTX 3090 host (alongside Ollama). The upstream image bundles FalkorDB
-# and the Graphiti MCP server in one container; it reads config/config.yaml, whose
-# ${VARS} are filled from .env. The MCP endpoint is consumed by diffbot-mcp.
+# diffbot-memory: a custom Graphiti MCP service (built from ./Dockerfile) plus
+# FalkorDB. Runs on the RTX 3090 host. The service uses local Ollama for the
+# extraction LLM + embeddings and disables MCP DNS-rebinding in-app, so diffbot-mcp
+# connects straight to :8100 (no reverse proxy).
 services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: diffbot-memory-falkordb
+    restart: unless-stopped
+    ports:
+      - "3100:3000"   # FalkorDB browser UI (avoids a busy :3000)
+    volumes:
+      - falkordb_data:/data
+
   diffbot-memory:
-    image: zepai/knowledge-graph-mcp:latest   # pin a digest/tag before deploying
+    build: .
     container_name: diffbot-memory
     restart: unless-stopped
     env_file: .env
-    environment:
-      CONFIG_PATH: /app/mcp/config/config.yaml
-      FALKORDB_URI: redis://localhost:6379     # FalkorDB is in-container
+    depends_on:
+      - falkordb
     ports:
-      - "8100:8000"   # MCP /mcp/ (host 8100 avoids diffbot-mcp:8080 / Graphiti default 8000)
-      - "3100:3000"   # FalkorDB web UI (host 3100 avoids a busy :3000)
+      - "8100:8100"   # MCP /mcp/ that diffbot-mcp connects to
     extra_hosts:
       - "host.docker.internal:host-gateway"   # reach Ollama on the 3090 host
-    volumes:
-      - ./config.yaml:/app/mcp/config/config.yaml:ro
-      - falkordb_data:/var/lib/falkordb/data
-      - mcp_logs:/var/log/graphiti
 
 volumes:
   falkordb_data:
-  mcp_logs:

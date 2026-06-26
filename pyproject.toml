@@ -1,0 +1,21 @@
+[project]
+name = "diffbot-memory"
+version = "0.1.0"
+description = "Graphiti temporal-memory MCP service for DiffBot (local Ollama + FalkorDB)"
+requires-python = ">=3.11"
+# Pinned to the versions verified working in the upstream image.
+dependencies = [
+    "graphiti-core==0.28.2",
+    "falkordb==1.6.0",
+    "mcp==1.26.0",
+    # Standard extras (websockets/uvloop/httptools): silences uvicorn's
+    # "No supported WebSocket library" upgrade-request warnings on the streamable-HTTP transport.
+    "uvicorn[standard]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diffbot_memory"]

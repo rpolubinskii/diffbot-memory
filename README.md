@@ -1,9 +1,10 @@
 # diffbot-memory
 
-Persistent, temporal memory for the DiffBot agent — a [Graphiti](https://github.com/getzep/graphiti)
-bi-temporal knowledge graph (facts carry `valid_at`/`invalid_at`) served over MCP, backed by
-FalkorDB, with extraction + embeddings run locally on Ollama. Consumed by `diffbot-mcp`, which
-re-exposes the curated `memory.remember` / `memory.recall` tools to the agent.
+Persistent, temporal memory for the DiffBot agent — a thin MCP service (this repo)
+built on [graphiti-core](https://github.com/getzep/graphiti): a bi-temporal knowledge
+graph (facts carry `valid_at`/`invalid_at`) over FalkorDB, with extraction + embeddings
+run locally on Ollama. Consumed by `diffbot-mcp`, which re-exposes curated
+`memory.remember` / `memory.recall` tools to the agent.
 
 ```
 diffbot-agent ──MCP──> diffbot-mcp ──MCP client──> diffbot-memory (this)
@@ -11,48 +12,59 @@ diffbot-agent ──MCP──> diffbot-mcp ──MCP client──> diffbot-memor
                                                         └── Ollama (LLM + embedder)
 ```
 
-## Prerequisites (run on the RTX 3090 host)
+We run graphiti-core directly (`src/diffbot_memory/server.py`) rather than the upstream
+`zepai/knowledge-graph-mcp` image, because that image's LLM provider is hardwired to the
+OpenAI **cloud Responses API** (it ignores a custom base_url and `/v1/responses` isn't
+something Ollama implements). Here the LLM uses graphiti-core's `OpenAIGenericClient`
+(chat-completions) pointed at Ollama, and we own the FastMCP settings — so DNS-rebinding
+host validation is disabled in-app and diffbot-mcp connects straight to `:8100` (no proxy).
 
-1. Ollama with the models pulled:
+## Prerequisites (on the RTX 3090 host)
+
+1. Ollama listening on all interfaces so the container can reach it:
    ```bash
-   ollama pull hf.co/unsloth/gemma-4-31B-it-GGUF:IQ4_XS   # extraction LLM
-   ollama pull bge-m3                                      # embedder (1024-dim)
+   sudo systemctl edit ollama      # [Service] / Environment="OLLAMA_HOST=0.0.0.0:11434"
+   sudo systemctl restart ollama
    ```
-2. To fit IQ4_XS + bge-m3 in 24 GB, run Ollama with KV-cache quantization and a capped context:
+2. Models pulled (use Ollama-native models — an imported HF gemma4 GGUF won't load:
+   llama.cpp lacks the `gemma4` arch):
    ```bash
-   OLLAMA_FLASH_ATTENTION=1
-   OLLAMA_KV_CACHE_TYPE=q8_0
-   # cap the gemma context (e.g. num_ctx 16384 via a Modelfile or OLLAMA_CONTEXT_LENGTH)
+   ollama pull gemma4:26b      # extraction LLM (chat-completions, tools/structured output)
+   ollama pull bge-m3          # embedder (1024-dim)
    ```
 
 ## Run
 
 ```bash
-cp .env.example .env      # adjust OPENAI_API_URL if Ollama isn't on host.docker.internal
-docker compose up -d
+cp .env.example .env       # adjust MODEL_NAME / OPENAI_API_URL if needed
+docker compose up -d --build
+docker compose logs -f diffbot-memory   # expect: "diffbot-memory ready (...)"
 ```
 
 - MCP endpoint: `http://<3090-host>:8100/mcp/`
 - FalkorDB web UI: `http://<3090-host>:3100`
 
-## How diffbot-mcp connects
+## Tools
 
-`diffbot-mcp` adds an MCP client connection to this endpoint and proxies `memory.remember` →
-Graphiti `add_memory` and `memory.recall` → `search_memory_facts`. The `group_id` here
-(`GRAPHITI_GROUP_ID=diffbot`) must match `diffbot-mcp`'s configured group.
+- `add_memory(name, episode_body, group_id, source, reference_time)` — queues an episode for
+  background ingestion (extraction never blocks the caller).
+- `search_memory_facts(query, group_ids, max_facts)` — hybrid search; returns
+  `{"facts": [{fact, valid_at, invalid_at}, …]}`.
+
+These names/params match `diffbot-mcp`'s `MemoryGateway`, so diffbot-mcp needs no change.
+`GRAPHITI_GROUP_ID=diffbot` must match diffbot-mcp's configured group.
 
 ## Verify
 
-- List tools / call `add_memory` then `search_memory_facts` with an MCP client against `:8100/mcp/`;
-  the fact should come back. Inspect the graph in the FalkorDB UI (`:3100`).
-- **Watch the logs for malformed-JSON / schema ingestion errors.** Graphiti depends on reliable
-  structured output; if IQ4_XS produces frequent extraction failures, raise the quant (QAT-q4 or q5)
-  — that's the signal the model is too lossy for extraction.
+- `docker compose logs diffbot-memory` shows the ready line and no extraction/embedding errors.
+  A 401 to `api.openai.com` would mean the LLM isn't pointed at Ollama; an `/embeddings` connection
+  error means Ollama isn't reachable (check `OLLAMA_HOST=0.0.0.0`).
+- From the agent, establish a fact, then recall it next turn; confirm an episode lands in the
+  FalkorDB UI (`:3100`).
 
 ## Notes
 
-- `embedder.dimensions` is pinned to **1024** for bge-m3 (not the upstream 1536 default); changing
-  the embedder means rebuilding the graph's vector index.
-- One `group_id` graph holds both automatic episodes (written by the agent after each command) and
-  deliberate facts (the model's `memory.remember`). Graphiti merges them temporally.
-- Self-hosted and offline-capable: no external API calls when pointed at local Ollama.
+- Reranking uses a **no-op cross-encoder** (hybrid vector+BM25+graph search still works) to avoid
+  cloud logprobs (`OpenAIRerankerClient`) and a heavy local model (`BGERerankerClient`). Swap in
+  `BGERerankerClient` later if recall quality needs it.
+- Self-hosted/offline: no external calls when pointed at local Ollama.
