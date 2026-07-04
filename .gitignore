@@ -1,1 +1,39 @@
-/.env
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+
+# Virtual environments and package state
+.venv/
+venv/
+env/
+.uv-cache/
+
+# Test, lint, and type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local IDE/editor state
+.idea/
+.vscode/
+*.swp
+*~
+
+# Runtime logs and local databases
+*.log
+*.sqlite
+*.sqlite3
