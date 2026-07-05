@@ -3,17 +3,23 @@ name = "diffbot-memory"
 version = "0.1.0"
 description = "Graphiti temporal-memory MCP service for DiffBot (local Ollama + FalkorDB)"
 requires-python = ">=3.11"
-# Pinned to the versions verified working in the upstream image.
+
 dependencies = [
     "graphiti-core==0.28.2",
     "falkordb==1.6.0",
     "mcp==1.26.0",
-    # Plain uvicorn (h11) ONLY — do NOT use uvicorn[standard]. Its httptools HTTP parser
-    # rejects the Spring AI MCP client's POSTs with 400 "Invalid HTTP request received",
-    # which breaks the memory connection entirely. The cosmetic "No supported WebSocket
-    # library" warning on the streamable-HTTP transport is harmless and expected.
+    "pydantic>=2",
     "uvicorn",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:ament_copyright -p no:ament_flake8 -p no:ament_lint -p no:ament_pep257 -p no:ament_xmllint -p no:launch_ros -p no:launch_testing"
 
 [build-system]
 requires = ["hatchling"]
